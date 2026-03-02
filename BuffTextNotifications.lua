@@ -81,12 +81,21 @@ local function RefreshDisplay()
     for _, entry in ipairs(CATEGORY_DISPLAY) do
         local names = trackedNames[entry.cat]
         if names and #names > 0 then
-            if not SetLine(entry.label, entry.r, entry.g, entry.b) then break end
-            local stop = false
+            -- Only show names that are currently active on the player
+            local activeNames = {}
             for _, name in ipairs(names) do
-                if not SetLine("  " .. name, 1, 1, 1) then stop = true break end
+                if AuraUtil.FindAuraByName(name, "player", "HELPFUL") then
+                    activeNames[#activeNames + 1] = name
+                end
             end
-            if stop then break end
+            if #activeNames > 0 then
+                if not SetLine(entry.label, entry.r, entry.g, entry.b) then break end
+                local stop = false
+                for _, name in ipairs(activeNames) do
+                    if not SetLine("  " .. name, 1, 1, 1) then stop = true break end
+                end
+                if stop then break end
+            end
         end
     end
 
@@ -158,6 +167,7 @@ local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("COOLDOWN_VIEWER_DATA_LOADED")
+eventFrame:RegisterEvent("UNIT_AURA")
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "ADDON_LOADED" then
@@ -186,6 +196,12 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
     elseif event == "COOLDOWN_VIEWER_DATA_LOADED" then
         BuildTrackedNames()
         RefreshDisplay()
+
+    elseif event == "UNIT_AURA" then
+        local unitToken = ...
+        if unitToken == "player" then
+            RefreshDisplay()
+        end
 
     end
 end)
