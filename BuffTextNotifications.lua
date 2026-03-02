@@ -20,14 +20,7 @@ local function FormatTime(seconds)
     return string.format("%d:%02d", math.floor(seconds / 60), math.floor(seconds % 60))
 end
 
-local auraCache = {
-    player = {},
-}
-local categorySpellIDs = {
-    [Enum.CooldownViewerCategory.TrackedBuff] = {},
-    [Enum.CooldownViewerCategory.TrackedBar] = {},
-}
-local spellToCategory = {}
+local trackedNames = { [2] = {}, [3] = {} }
 
 local CATEGORY_DISPLAY = {
     { cat = Enum.CooldownViewerCategory.TrackedBuff, label = "Tracked Buff", r = 0.2, g = 1,   b = 0.2 },
@@ -35,141 +28,24 @@ local CATEGORY_DISPLAY = {
 }
 
 -------------------------------------------------------------------------------
--- Section 2: Aura Cache (Data Layer)
+-- Section 2: C_CooldownViewer Data Layer
 -------------------------------------------------------------------------------
-local function BuildTrackedSet()
-    for cat, _ in pairs(categorySpellIDs) do
-        categorySpellIDs[cat] = {}
-    end
-    spellToCategory = {}
-
-    for _, cat in ipairs({
-        Enum.CooldownViewerCategory.TrackedBuff,
-        Enum.CooldownViewerCategory.TrackedBar,
-    }) do
-        local ids = C_CooldownViewer.GetCooldownViewerCategorySet(cat) or {}
-        for _, cooldownID in ipairs(ids) do
+local function BuildTrackedNames()
+    trackedNames[2] = {}
+    trackedNames[3] = {}
+    for category = 2, 3 do
+        local cooldownIDs = C_CooldownViewer.GetCooldownViewerCategorySet(category) or {}
+        for _, cooldownID in ipairs(cooldownIDs) do
             local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cooldownID)
-            if info then
-                categorySpellIDs[cat][info.spellID] = true
-                spellToCategory[info.spellID] = cat
-                if info.overrideSpellID then
-                    categorySpellIDs[cat][info.overrideSpellID] = true
-                    spellToCategory[info.overrideSpellID] = cat
-                end
-                if info.linkedSpellIDs then
-                    for _, linked in ipairs(info.linkedSpellIDs) do
-                        categorySpellIDs[cat][linked] = true
-                        spellToCategory[linked] = cat
-                    end
+            if info and info.spellID then
+                local name = C_Spell.GetSpellName(info.spellID)
+                if name then
+                    trackedNames[category][#trackedNames[category] + 1] = name
                 end
             end
         end
+        table.sort(trackedNames[category])
     end
-end
-
-local function ScanAllAuras(unit)
-    auraCache[unit] = {}
-    local index = 1
-    while true do
-        local auraData = C_UnitAuras.GetAuraDataByIndex(unit, index, "HELPFUL")
-        if not auraData then break end
-        if spellToCategory[auraData.spellId] then
-            auraCache[unit][auraData.auraInstanceID] = {
-                name = auraData.name,
-                spellId = auraData.spellId,
-                stacks = auraData.applications or 0,
-                category = spellToCategory[auraData.spellId],
-                duration = auraData.duration,
-                expirationTime = auraData.expirationTime,
-            }
-        end
-        index = index + 1
-    end
-end
-
-local function ProcessAuraUpdate(unit, updateInfo)
-    if not updateInfo then
-        ScanAllAuras(unit)
-        return
-    end
-
-    if updateInfo.isFullUpdate then
-        ScanAllAuras(unit)
-        return
-    end
-
-    if updateInfo.addedAuras then
-        for _, auraData in ipairs(updateInfo.addedAuras) do
-            if auraData.spellId and spellToCategory[auraData.spellId] then
-                auraCache[unit][auraData.auraInstanceID] = {
-                    name = auraData.name,
-                    spellId = auraData.spellId,
-                    stacks = auraData.applications or 0,
-                    category = spellToCategory[auraData.spellId],
-                    duration = auraData.duration,
-                    expirationTime = auraData.expirationTime,
-                }
-            end
-        end
-    end
-
-    if updateInfo.updatedAuraInstanceIDs then
-        for _, instanceID in ipairs(updateInfo.updatedAuraInstanceIDs) do
-            local auraData = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, instanceID)
-            if auraData and auraData.spellId and spellToCategory[auraData.spellId] then
-                auraCache[unit][instanceID] = {
-                    name = auraData.name,
-                    spellId = auraData.spellId,
-                    stacks = auraData.applications or 0,
-                    category = spellToCategory[auraData.spellId],
-                    duration = auraData.duration,
-                    expirationTime = auraData.expirationTime,
-                }
-            else
-                auraCache[unit][instanceID] = nil
-            end
-        end
-    end
-
-    if updateInfo.removedAuraInstanceIDs then
-        for _, instanceID in ipairs(updateInfo.removedAuraInstanceIDs) do
-            auraCache[unit][instanceID] = nil
-        end
-    end
-end
-
-local function GetDisplayEntries(unit)
-    local byCategory = {}
-
-    -- TrackedBuff / TrackedBar: pulled from aura cache with stack + timer info
-    for _, info in pairs(auraCache[unit] or {}) do
-        local cat = info.category
-        if cat then
-            if not byCategory[cat] then byCategory[cat] = {} end
-            local timeRemaining = math.max(0, (info.expirationTime or 0) - GetTime())
-            local display = info.name
-            if info.stacks and info.stacks > 1 then
-                display = display .. " (" .. info.stacks .. ")"
-            end
-            if info.duration and info.duration > 0 then
-                display = display .. " " .. FormatTime(timeRemaining) .. "/" .. FormatTime(info.duration)
-            end
-            byCategory[cat][#byCategory[cat] + 1] = display
-        end
-    end
-
-    -- Sort TrackedBuff and TrackedBar alphabetically
-    for _, cat in ipairs({
-        Enum.CooldownViewerCategory.TrackedBuff,
-        Enum.CooldownViewerCategory.TrackedBar,
-    }) do
-        if byCategory[cat] then
-            table.sort(byCategory[cat])
-        end
-    end
-
-    return byCategory
 end
 
 -------------------------------------------------------------------------------
@@ -202,9 +78,8 @@ local function RefreshDisplay()
     end
 
     -- Player buffs by category
-    local byCategory = GetDisplayEntries("player")
     for _, entry in ipairs(CATEGORY_DISPLAY) do
-        local names = byCategory[entry.cat]
+        local names = trackedNames[entry.cat]
         if names and #names > 0 then
             if not SetLine(entry.label, entry.r, entry.g, entry.b) then break end
             local stop = false
@@ -274,15 +149,6 @@ local function CreateDisplayFrame()
         end
     end)
 
-    -- Live timer ticker (~10 fps) keeps countdown timers ticking
-    local elapsed = 0
-    frame:SetScript("OnUpdate", function(self, dt)
-        elapsed = elapsed + dt
-        if elapsed >= 0.1 then
-            elapsed = 0
-            RefreshDisplay()
-        end
-    end)
 end
 
 -------------------------------------------------------------------------------
@@ -291,7 +157,6 @@ end
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-eventFrame:RegisterEvent("UNIT_AURA")
 eventFrame:RegisterEvent("COOLDOWN_VIEWER_DATA_LOADED")
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
@@ -315,19 +180,11 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         end
 
     elseif event == "PLAYER_ENTERING_WORLD" then
-        BuildTrackedSet()
-        ScanAllAuras("player")
+        BuildTrackedNames()
         RefreshDisplay()
 
     elseif event == "COOLDOWN_VIEWER_DATA_LOADED" then
-        BuildTrackedSet()
-        ScanAllAuras("player")
-        RefreshDisplay()
-
-    elseif event == "UNIT_AURA" then
-        local unit, updateInfo = ...
-        if unit ~= "player" then return end
-        ProcessAuraUpdate(unit, updateInfo)
+        BuildTrackedNames()
         RefreshDisplay()
 
     end
