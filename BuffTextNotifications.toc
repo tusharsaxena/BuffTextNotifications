@@ -1,0 +1,8 @@
+## Interface: 120001
+## Title: BuffTextNotifications
+## Notes: Displays active buff names as text in a draggable frame
+## Author: Tushar
+## Version: 1.0.0
+## SavedVariables: BuffTextNotificationsDB
+
+BuffTextNotifications.lua
