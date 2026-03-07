@@ -14,6 +14,9 @@ local MAX_LINES = 30
 local DEFAULT_X = -200
 local DEFAULT_Y = 200
 
+local POLL_INTERVAL = 1   -- seconds between refreshes (default: 5/second)
+local pollElapsed   = 0
+
 local function FormatTime(seconds)
     if seconds <= 0 then return "0s" end
     if seconds < 60 then return string.format("%ds", math.floor(seconds)) end
@@ -45,6 +48,9 @@ local function BuildTrackedNames()
             end
         end
         table.sort(trackedNames[category])
+        print(string.format("[BTN] BuildTrackedNames cat=%d count=%d: %s",
+            category, #trackedNames[category],
+            table.concat(trackedNames[category], ", ")))
     end
 end
 
@@ -84,7 +90,7 @@ local function RefreshDisplay()
             -- Only show names that are currently active on the player
             local activeNames = {}
             for _, name in ipairs(names) do
-                if AuraUtil.FindAuraByName(name, "player", "HELPFUL") then
+                if AuraUtil.FindAuraByName(name, "player") then
                     activeNames[#activeNames + 1] = name
                 end
             end
@@ -158,6 +164,28 @@ local function CreateDisplayFrame()
         end
     end)
 
+    frame:SetScript("OnUpdate", function(self, elapsed)
+        pollElapsed = pollElapsed + elapsed
+        if pollElapsed >= POLL_INTERVAL then
+            pollElapsed = 0
+            -- build debug summary
+            local parts = {}
+            for _, entry in ipairs(CATEGORY_DISPLAY) do
+                local names = trackedNames[entry.cat] or {}
+                local active = {}
+                for _, n in ipairs(names) do
+                    if AuraUtil.FindAuraByName(n, "player") then
+                        active[#active + 1] = n
+                    end
+                end
+                parts[#parts + 1] = string.format("cat%d tracked=%d active=%d[%s]",
+                    entry.cat, #names, #active, table.concat(active, ","))
+            end
+            print(string.format("[BTN] poll tick @ %.3f | %s", GetTime(), table.concat(parts, " | ")))
+            RefreshDisplay()
+        end
+    end)
+
 end
 
 -------------------------------------------------------------------------------
@@ -200,6 +228,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
     elseif event == "UNIT_AURA" then
         local unitToken = ...
         if unitToken == "player" then
+            print(string.format("[BTN] UNIT_AURA @ %.3f", GetTime()))
             RefreshDisplay()
         end
 
