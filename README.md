@@ -85,4 +85,4 @@ Most of these are the consequence of a first release that stopped at "it works".
 
 | Version | Notes |
 | --- | --- |
-| 1.0.0 | First release — Cooldown Manager-driven buff name list in a draggable frame, `/btn` with `reset` and `toggle`. |
+| 1.0.0 | - First release — Cooldown Manager-driven buff name list in a draggable frame, `/btn` with `reset` and `toggle`. |
